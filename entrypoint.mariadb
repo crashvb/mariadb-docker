@@ -1,0 +1,99 @@
+#!/bin/bash
+
+set -e -o pipefail
+
+export init_file="/etc/mysql/init-file.sql"
+
+# Configure: mariadb
+if [[ ! -e "${EP_RUN}" ]] ; then
+	log "Configuring $(basename "${0}") for first run ..."
+
+	# Generate passwords ...
+	generate_password "mariadb_root"
+	[[ -n "${MARIADB_USER}" ]] && generate_password "mariadb_user"
+
+	# Generate keypairs ...
+	generate_rsakey mariadb
+
+	ln --symbolic /etc/ssl/certs/mariadbca.crt /usr/share/ca-certificates/
+	echo mariadbca.crt >> /etc/ca-certificates.conf
+	update-ca-certificates
+
+	# Volume initialization
+	if [[ ! -d "${MARIADB_DATA}/mysql" ]]; then
+		log "Initializing data volume ..."
+
+		log "Priming reserved tables ..."
+		/usr/bin/mysql_install_db \
+			--auth-root-authentication-method=normal \
+			--datadir="${MARIADB_DATA}" \
+			--default-time-zone=SYSTEM \
+			--expire-logs-days=0 \
+			--loose-innodb_buffer_pool_dump_at_shutdown=0 \
+			--loose-innodb_buffer_pool_load_at_startup=0 \
+			--rpm \
+			--skip-log-bin \
+			--skip-test-db
+
+		log "Modifying: 50-server.cnf ..."
+		# https://mariadb.com/kb/en/securing-connections-for-client-and-server/#requiring-tls
+		MARIADB_TLS_CIPHER="${MARIADB_TLS_CIPHER:="TLS_AES_256_GCM_SHA384"}"
+		MARIADB_TLS_VERSION="${MARIADB_TLS_VERSION:="TLSv1.3"}"
+		sed --expression="/require-secure-transport =/atls_version = ${MARIADB_TLS_VERSION}" \
+			--expression="/require-secure-transport =/assl_cipher = ${MARIADB_TLS_CIPHER}" \
+			--in-place= /etc/mysql/mariadb.conf.d/50-server.cnf
+		[[ -n "${MARIADB_ALLOW_INSECURE_ROOT}" || -n "${MARIADB_ALLOW_INSECURE_USER}" ]] && \
+			sed --expression="/require-secure-transport = /s/^/#/g" \
+				--in-place /etc/mysql/mariadb.conf.d/50-server.cnf
+
+		log "Generating: ${init_file} ..."
+		cat <<- EOF > "${init_file}"
+			DELETE FROM mysql.user ;
+			CREATE USER 'root'@'%' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}' ;
+			GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION ;
+			DROP DATABASE IF EXISTS test ;
+		EOF
+		
+		[[ -n "${MARIADB_DATABASE}" ]] && \
+			echo "CREATE DATABASE IF NOT EXISTS \`${MARIADB_DATABASE}\` ;" >> "${init_file}"
+		
+		if [[ -n "${MARIADB_USER}" ]] ; then
+			echo "CREATE USER '${MARIADB_USER}'@'%' IDENTIFIED BY '${MARIADB_USER_PASSWORD}' ;" >> "${init_file}"
+			
+			[[ -n "${MARIADB_DATABASE}" ]] && \
+				echo "GRANT ALL ON \`${MARIADB_DATABASE}\`.* TO '${MARIADB_USER}'@'%' ;" >> "${init_file}"
+		fi
+
+		[[ -n "${MARIADB_ALLOW_INSECURE_ROOT}" ]] && \
+			log "Relaxing TLS: root" && \
+			echo "ALTER USER 'root'@'%' REQUIRE NONE ;" >> "${init_file}"
+		[[ -n "${MARIADB_ALLOW_INSECURE_USER}" ]] && \
+			log "Relaxying TLS: ${MARIADB_USER}" && \
+			echo "ALTER USER '${MARIADB_USER}'@'%' REQUIRE NONE ;" >> "${init_file}"
+
+		echo "FLUSH PRIVILEGES ;" >> "${init_file}"
+
+		log "Starting mariadb ..."
+		/usr/sbin/mysqld \
+			--datadir="${MARIADB_DATA}" \
+			--default-time-zone=SYSTEM \
+			--expire-logs-days=0 \
+			--init-file="${init_file}" \
+			--loose-innodb_buffer_pool_load_at_startup=0 \
+			--skip-networking \
+			--user=root \
+			--wsrep_on=OFF &
+
+		log "Waiting for initialization..."
+		mysqladmin --password="${MARIADB_ROOT_PASSWORD}" --silent --wait=30 ping > /dev/null
+
+		log "Stopping mariadb ..."
+		mysqladmin --password="${MARIADB_ROOT_PASSWORD}" shutdown
+
+		rm --force "${init_file}"
+	fi
+	
+	log "Applying ownership and permissions ..."
+	find "${MARIADB_DATA}" \( \! -user mysql -o \! -group mysql \) -exec chown mysql:mysql {} \;
+fi
+

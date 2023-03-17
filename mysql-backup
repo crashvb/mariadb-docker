@@ -1,0 +1,80 @@
+#!/bin/bash
+
+set -e -o pipefail
+
+source /usr/local/lib/entrypoint.sh
+
+LOCK_FILE="/run/$(basename "${0}").lock"
+
+# Verifies and / or cretaes the script lock file
+function setLock
+{
+	# Check for another instance ...
+	if [[ -f "$LOCK_FILE" ]] ; then
+		pid=$(cat "$LOCK_FILE" | awk '{print $NF'})
+		if [[ "$(ps -p $pid | grep $pid | awk '{print $1}')" -eq "$pid" ]] ; then
+			log "ERROR: Lock file exists; process is running:" $pid >&2
+			exit 1
+		else
+			log "WARN: Lock file exists; no processes is running!" >&2
+		fi
+	fi
+
+	# Create the lock file
+	log "Creating lock file: ${LOCK_FILE}"
+	echo "$$" > "${LOCK_FILE}"
+}
+
+# Removes the script lock file
+function unsetLock
+{
+	if [[ -f "${LOCK_FILE}" ]] ; then
+		# Destroy the lock file
+		log "Removing lock file: ${LOCK_FILE}"
+		rm "${LOCK_FILE}"
+	fi
+}
+
+setLock
+
+prefix="$(basename "${0}").$(date '+%Y%m%d%H%M%S')"
+root=/var/backups
+
+tmp="$(mktemp --directory)"
+cd "${tmp}"
+
+dump="${prefix}.mysqldump.sql.gz"
+log "Generating: ${dump} ..."
+mysqldump \
+	--add-drop-table \
+	--all-databases \
+	--host=localhost \
+	--password="$(cat /run/secrets/mariadb_root_password)" \
+	--protocol=socket \
+	--replace \
+	--single-transaction \
+	--user=root \
+	| gzip -9 \
+	> "${dump}" \
+
+digest="${dump}.sha256"
+log "Generating: ${digest} ..."
+sha256sum --binary "${prefix}".* > "${digest}"
+
+package="${prefix}.pkg"
+log "Generating: ${package} ..."
+tar \
+	--create \
+	--gzip \
+	--file="${package}" \
+	"${prefix}"* \
+
+mv --verbose "${package}" "${root}"
+ln --force --symbolic --verbose "${root}/${package}" "${root}/$(basename "${0}").pkg"
+
+cd -
+rm --force --recursive "${tmp}"
+
+unsetLock
+exit 0
+

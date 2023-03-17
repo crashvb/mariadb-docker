@@ -1,0 +1,129 @@
+#!/bin/bash
+
+log "Installing test-prerequisits ..."
+docker-apt shunit2
+
+log "Starting supervisord ..."
+/usr/bin/supervisord --configuration=/etc/supervisor/supervisord.conf &
+sleep 1
+while [[ ! -f /run/mysqld/mysqld.pid ]] ; do
+	log "Waiting for mysqld ..."
+	sleep 1
+done
+
+TEST_SQL="show variables like '%ssl%'; show session status where \`variable_name\` in ('ssl_cipher', 'ssl_verify_mode', 'ssl_version');"
+
+[[ -n "${DEBUG}" ]] && exec 3>&1 || exec 3<> /dev/null
+
+function testCliRootInsecure()
+{
+	! mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_root_password)" \
+		--protocol=tcp \
+		--user=root 1>&3 2>&3
+	assertTrue "CLI as root [insecure]" $?
+}
+
+function testCliRootZeroWayTLS()
+{
+	mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_root_password)" \
+		--protocol=tcp \
+		--ssl \
+		--user=root 1>&3 2>&3
+	assertTrue "CLI as root [zero-way TLS]" $?
+}
+
+function testCliRootOneWayTLS()
+{
+	mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_root_password)" \
+		--protocol=tcp \
+		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
+		--ssl-verify-server-cert \
+		--user=root 1>&3 2>&3
+	assertTrue "CLI as root [one-way TLS]" $?
+}
+
+function testCliRootTwoWayTLS()
+{
+	mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_root_password)" \
+		--protocol=tcp \
+		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
+		--ssl-cert=/etc/ssl/certs/mariadb.crt \
+		--ssl-key=/etc/ssl/private/mariadb.key \
+		--ssl-verify-server-cert \
+		--user=root 1>&3 2>&3
+	assertTrue "CLI as root [two-way TLS]" $?
+}
+
+function testCliUserInsecure()
+{
+	! mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_user_password)" \
+		--protocol=tcp \
+		--user="${MARIADB_USER}" 1>&3 2>&3
+	assertTrue "CLI as ${MARIADB_USER} [insecure]" $?
+}
+
+function testCliUserZeroWayTLS()
+{
+	mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_user_password)" \
+		--protocol=tcp \
+		--ssl \
+		--user="${MARIADB_USER}" 1>&3 2>&3
+	assertTrue "CLI as ${MARIADB_USER} [zero-way TLS]" $?
+}
+
+function testCliUserOneWayTLS()
+{
+	mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_user_password)" \
+		--protocol=tcp \
+		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
+		--ssl-verify-server-cert \
+		--user="${MARIADB_USER}" 1>&3 2>&3
+	assertTrue "CLI as ${MARIADB_USER} [one-way TLS]" $?
+}
+
+function testCliUserTwoWayTLS()
+{
+	mysql \
+		--database="${MARIADB_DATABASE}" \
+		--execute="${TEST_SQL}" \
+		--host=localhost \
+		--password="$(cat /run/secrets/mariadb_user_password)" \
+		--protocol=tcp \
+		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
+		--ssl-cert=/etc/ssl/certs/mariadb.crt \
+		--ssl-key=/etc/ssl/private/mariadb.key \
+		--ssl-verify-server-cert \
+		--user="${MARIADB_USER}" 1>&3 2>&3
+	assertTrue "CLI as ${MARIADB_USER} [two-way TLS]" $?
+}
+
+source /usr/bin/shunit2
+

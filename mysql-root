@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e -o pipefail
+
+exec mysql \
+	--host=localhost \
+	--password="$(cat /run/secrets/mariadb_root_password)" \
+	--protocol=socket \
+	--user=root \
+	"${@}"
+

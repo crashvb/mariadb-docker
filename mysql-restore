@@ -1,0 +1,69 @@
+#!/bin/bash
+
+set -e -o pipefail
+
+source /usr/local/lib/entrypoint.sh
+
+LOCK_FILE="/run/$(basename "${0}").lock"
+
+# Verifies and / or cretaes the script lock file
+function setLock
+{
+	# Check for another instance ...
+	if [[ -f "$LOCK_FILE" ]] ; then
+		pid=$(cat "$LOCK_FILE" | awk '{print $NF'})
+		if [[ "$(ps -p $pid | grep $pid | awk '{print $1}')" -eq "$pid" ]] ; then
+			log "ERROR: Lock file exists; process is running:" $pid >&2
+			exit 1
+		else
+			log "WARN: Lock file exists; no processes is running!" >&2
+		fi
+	fi
+
+	# Create the lock file
+	log "Creating lock file: ${LOCK_FILE}"
+	echo "$$" > "${LOCK_FILE}"
+}
+
+# Removes the script lock file
+function unsetLock
+{
+	if [[ -f "${LOCK_FILE}" ]] ; then
+		# Destroy the lock file
+		log "Removing lock file: ${LOCK_FILE}"
+		rm "${LOCK_FILE}"
+	fi
+}
+
+setLock
+
+root=/var/backups
+
+tmp="$(mktemp --directory)"
+cd "${tmp}"
+
+package="${root}/mysql-backup.pkg"
+log "Extracting: ${package} ..."
+tar \
+	--extract \
+	--file="${package}"
+
+log "Validating ..."
+cat $(ls *.sha256) | sha256sum --check
+
+log "Restoring ..."
+gunzip \
+	--stdout \
+	$(ls *.sql.gz) | \
+mysql \
+	--host=localhost \
+	--password="$(cat /run/secrets/mariadb_root_password)" \
+	--protocol=socket \
+	--user=root
+
+cd -
+rm --force --recursive "${tmp}"
+
+unsetLock
+exit 0
+
