@@ -1,27 +1,47 @@
 #!/bin/bash
 
+[[ -n "${DEBUG}" ]] && exec 3>&1 || exec 3<> /dev/null
+
 log "Installing test-prerequisits ..."
 docker-apt shunit2
 
-log "Starting supervisord ..."
-/usr/bin/supervisord --configuration=/etc/supervisor/supervisord.conf &
-sleep 1
-while [[ ! -f /run/mysqld/mysqld.pid ]] ; do
-	log "Waiting for mysqld ..."
-	sleep 1
-done
-
 TEST_SQL="show variables like '%ssl%'; show session status where \`variable_name\` in ('ssl_cipher', 'ssl_verify_mode', 'ssl_version');"
 
-[[ -n "${DEBUG}" ]] && exec 3>&1 || exec 3<> /dev/null
+function oneTimeSetUp()
+{
+	log "Starting supervisord ..."
+	/usr/bin/supervisord --configuration=/etc/supervisor/supervisord.conf &
+	while [[ ! -f /run/mysqld/mysqld.pid ]] ; do
+		log "Waiting for mysqld ..."
+		sleep 1
+	done
+
+	defaults_root="$(mktemp /tmp/defaults.XXXXXX.cnf)"
+	log "Defaults [root] : ${defaults_root}"
+	cat <<- EOF > "${defaults_root}"
+		[client]
+		password="$(cat /run/secrets/mariadb_root_password)"
+	EOF
+	defaults_user="$(mktemp /tmp/defaults.XXXXXX.cnf)"
+	log "Defaults [user] : ${defaults_user}"
+	cat <<- EOF > "${defaults_user}"
+		[client]
+		password="$(cat /run/secrets/mariadb_user_password)"
+	EOF
+}
+
+function oneTimeTearDown()
+{
+	rm --force "${defaults_root}" "${defaults_user}"
+}
 
 function testCliRootInsecure()
 {
 	! mysql \
+		--defaults-extra-file="${defaults_root}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_root_password)" \
 		--protocol=tcp \
 		--user=root 1>&3 2>&3
 	assertTrue "CLI as root [insecure]" $?
@@ -30,10 +50,10 @@ function testCliRootInsecure()
 function testCliRootZeroWayTLS()
 {
 	mysql \
+		--defaults-extra-file="${defaults_root}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_root_password)" \
 		--protocol=tcp \
 		--ssl \
 		--user=root 1>&3 2>&3
@@ -43,10 +63,10 @@ function testCliRootZeroWayTLS()
 function testCliRootOneWayTLS()
 {
 	mysql \
+		--defaults-extra-file="${defaults_root}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_root_password)" \
 		--protocol=tcp \
 		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
 		--ssl-verify-server-cert \
@@ -57,10 +77,10 @@ function testCliRootOneWayTLS()
 function testCliRootTwoWayTLS()
 {
 	mysql \
+		--defaults-extra-file="${defaults_root}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_root_password)" \
 		--protocol=tcp \
 		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
 		--ssl-cert=/etc/ssl/certs/mariadb.crt \
@@ -73,10 +93,10 @@ function testCliRootTwoWayTLS()
 function testCliUserInsecure()
 {
 	! mysql \
+		--defaults-extra-file="${defaults_user}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_user_password)" \
 		--protocol=tcp \
 		--user="${MARIADB_USER}" 1>&3 2>&3
 	assertTrue "CLI as ${MARIADB_USER} [insecure]" $?
@@ -85,10 +105,10 @@ function testCliUserInsecure()
 function testCliUserZeroWayTLS()
 {
 	mysql \
+		--defaults-extra-file="${defaults_user}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_user_password)" \
 		--protocol=tcp \
 		--ssl \
 		--user="${MARIADB_USER}" 1>&3 2>&3
@@ -98,10 +118,10 @@ function testCliUserZeroWayTLS()
 function testCliUserOneWayTLS()
 {
 	mysql \
+		--defaults-extra-file="${defaults_user}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_user_password)" \
 		--protocol=tcp \
 		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
 		--ssl-verify-server-cert \
@@ -112,10 +132,10 @@ function testCliUserOneWayTLS()
 function testCliUserTwoWayTLS()
 {
 	mysql \
+		--defaults-extra-file="${defaults_user}" \
 		--database="${MARIADB_DATABASE}" \
 		--execute="${TEST_SQL}" \
 		--host=localhost \
-		--password="$(cat /run/secrets/mariadb_user_password)" \
 		--protocol=tcp \
 		--ssl-ca=/etc/ssl/certs/mariadbca.crt \
 		--ssl-cert=/etc/ssl/certs/mariadb.crt \

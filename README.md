@@ -23,7 +23,7 @@ The embedded entrypoint script is located at `/etc/entrypoint.d/mariadb` and per
  | MARIADB\_ALLOW\_INSECURE\_USER | | If defined, TLS will not be required for secure connection from _<user>_. |
  | MARIADB\_DATABASE | | If defined, a database with the given name will be created. |
  | MARIADB\_ROOT\_PASSWORD | _random_ | The mariadb `root` password. |
- | MARIADB\_TLS\_CIPHER | TLS\_AES\_256\_GCM\_SHA384 | The TLS cipher(s) to use for secure connections. |
+ | MARIADB\_TLS\_CIPHERSUITES | TLS\_AES\_256\_GCM\_SHA384 | The TLS cipher(s) to use for secure connections. |
  | MARIADB\_TLS\_VERSION | TLSv1.3 | The TLS versions to use for secure connections. |
  | MARIADB\_USER | | If defined, a user with the given name will be created. |
  | MARIADB\_USER\_PASSWORD | _random_ | The mariadb _<user>_ password. |

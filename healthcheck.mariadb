@@ -5,5 +5,5 @@ set -e -o pipefail
 log "Checking if $(basename "${0}") is healthy ..."
 [[ $(pgrep --count --full /usr/sbin/mariadbd) -gt 0 ]]
 
-mysqladmin --host="$(hostname --ip-address)" ping --password="$(</run/secrets/mariadb_root_password)" --silent --user=root
+mysqladmin --host="localhost" ping --password="$(</run/secrets/mariadb_root_password)" --silent --user=root
 

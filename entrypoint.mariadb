@@ -19,6 +19,17 @@ if [[ ! -e "${EP_RUN}" ]] ; then
 	echo mariadbca.crt >> /etc/ca-certificates.conf
 	update-ca-certificates
 
+	log "Modifying: 50-server.cnf ..."
+	# https://mariadb.com/kb/en/securing-connections-for-client-and-server/#requiring-tls
+	MARIADB_TLS_CIPHERSUITES="${MARIADB_TLS_CIPHERSUITES:="TLS_AES_256_GCM_SHA384"}"
+	MARIADB_TLS_VERSION="${MARIADB_TLS_VERSION:="TLSv1.3"}"
+	sed --expression="/require-secure-transport =/atls_version = ${MARIADB_TLS_VERSION}" \
+		--expression="/require-secure-transport =/assl_cipher = ${MARIADB_TLS_CIPHERSUITES}" \
+		--in-place /etc/mysql/mariadb.conf.d/50-server.cnf
+	[[ -n "${MARIADB_ALLOW_INSECURE_ROOT}" || -n "${MARIADB_ALLOW_INSECURE_USER}" ]] && \
+		sed --expression="/require-secure-transport = /s/^/#/g" \
+			--in-place /etc/mysql/mariadb.conf.d/50-server.cnf
+
 	# Volume initialization
 	if [[ ! -d "${MARIADB_DATA}/mysql" ]]; then
 		log "Initializing data volume ..."
@@ -34,17 +45,6 @@ if [[ ! -e "${EP_RUN}" ]] ; then
 			--rpm \
 			--skip-log-bin \
 			--skip-test-db
-
-		log "Modifying: 50-server.cnf ..."
-		# https://mariadb.com/kb/en/securing-connections-for-client-and-server/#requiring-tls
-		MARIADB_TLS_CIPHER="${MARIADB_TLS_CIPHER:="TLS_AES_256_GCM_SHA384"}"
-		MARIADB_TLS_VERSION="${MARIADB_TLS_VERSION:="TLSv1.3"}"
-		sed --expression="/require-secure-transport =/atls_version = ${MARIADB_TLS_VERSION}" \
-			--expression="/require-secure-transport =/assl_cipher = ${MARIADB_TLS_CIPHER}" \
-			--in-place= /etc/mysql/mariadb.conf.d/50-server.cnf
-		[[ -n "${MARIADB_ALLOW_INSECURE_ROOT}" || -n "${MARIADB_ALLOW_INSECURE_USER}" ]] && \
-			sed --expression="/require-secure-transport = /s/^/#/g" \
-				--in-place /etc/mysql/mariadb.conf.d/50-server.cnf
 
 		log "Generating: ${init_file} ..."
 		cat <<- EOF > "${init_file}"
