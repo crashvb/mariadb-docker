@@ -23,11 +23,12 @@ COPY mysql-* /usr/local/bin/
 RUN usermod --append --groups ssl-cert mysql && \
 	install --directory --group=mysql --mode=0750 --owner=mysql /var/run/mysqld && \
 	sed --expression="/^bind-address/s/127.0.0.1/0.0.0.0/" \
-		--expression="/#ssl-ca =/cssl-ca = /etc/ssl/certs/mariadbca.crt" \
-		--expression="/#ssl-cert =/cssl-cert = /etc/ssl/certs/mariadb.crt" \
-		--expression="/#ssl-key =/cssl-key = /etc/ssl/private/mariadb.key" \
-		--expression="/#require-secure-transport = /s/off/on/g" \
-		--expression="/#require-secure-transport = /s/#//g" \
+		--expression="/^#ssl-ca =/cssl-ca = /etc/ssl/certs/mariadbca.crt" \
+		--expression="/^#ssl-cert =/cssl-cert = /etc/ssl/certs/mariadb.crt" \
+		--expression="/^#ssl-key =/cssl-key = /etc/ssl/private/mariadb.key" \
+		--expression="/^#require-secure-transport = /s/off/on/g" \
+		--expression="/^#require-secure-transport = /s/#//g" \
+		--expression="/^#log_bin /clog_bin = ${MARIADB_DATA}/mysql-bin.log" \
 		--in-place=.dist /etc/mysql/mariadb.conf.d/50-server.cnf
 
 # Configure: supervisor

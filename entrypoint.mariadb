@@ -29,9 +29,12 @@ if [[ ! -e "${EP_RUN}" ]] ; then
 	[[ -n "${MARIADB_ALLOW_INSECURE_ROOT}" || -n "${MARIADB_ALLOW_INSECURE_USER}" ]] && \
 		sed --expression="/require-secure-transport = /s/^/#/g" \
 			--in-place /etc/mysql/mariadb.conf.d/50-server.cnf
+	[[ -n "${MARIADB_SERVER_ID}" ]] && \
+		sed --expression="/^#server-id /cserver-id = ${MARIADB_SERVER_ID}" \
+			--in-place /etc/mysql/mariadb.conf.d/50-server.cnf
 
 	# Volume initialization
-	if [[ ! -d "${MARIADB_DATA}/mysql" ]]; then
+	if [[ ! -d "${MARIADB_DATA}/mysql" ]] ; then
 		log "Initializing data volume ..."
 
 		log "Priming reserved tables ..."
